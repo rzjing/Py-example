@@ -3,7 +3,8 @@
 # @Time     : 2020-07-23 15:36
 # @File     : run.py
 
-from flask import Flask, jsonify
+from elasticsearch import Elasticsearch
+from flask import Flask, jsonify, request
 from flask_restful import Api, Resource, reqparse
 
 from paper.model import MySQL
@@ -119,6 +120,106 @@ class Account(Resource):
 
 
 v1.add_resource(Account, '/account/<int:aid>')
+
+resourceParams = parser.copy()
+resourceParams.add_argument('title', type=str, location=['args', 'form', 'json'], required=True)
+resourceParams.add_argument('title_other', type=str, location=['args', 'form', 'json'], required=True)
+resourceParams.add_argument('description', type=str, location=['args', 'form', 'json'], required=True)
+resourceParams.add_argument('cover', type=str, location=['args', 'form', 'json'], required=True)
+resourceParams.add_argument('alias', type=str, location=['args', 'form', 'json'], required=True)
+resourceParams.add_argument('score', type=str, location=['args', 'form', 'json'], required=True)
+resourceParams.add_argument('views', type=str, location=['args', 'form', 'json'], required=True)
+resourceParams.add_argument('genre', type=str, location=['args', 'form', 'json'], required=True)
+resourceParams.add_argument('area', type=str, location=['args', 'form', 'json'], required=True)
+resourceParams.add_argument('tags', type=str, location=['args', 'form', 'json'], required=True)
+resourceParams.add_argument('language', type=str, location=['args', 'form', 'json'], required=True)
+resourceParams.add_argument('duration', type=str, location=['args', 'form', 'json'], required=True)
+resourceParams.add_argument('year', type=str, location=['args', 'form', 'json'], required=True)
+resourceParams.add_argument('isPay', type=str, location=['args', 'form', 'json'], required=True)
+resourceParams.add_argument('isPays', type=str, location=['args', 'form', 'json'], required=True)
+resourceParams.add_argument('contentType', type=str, location=['args', 'form', 'json'], required=True)
+resourceParams.add_argument('releaseDate', type=str, location=['args', 'form', 'json'], required=True)
+resourceParams.add_argument('onLines', type=str, location=['args', 'form', 'json'], required=True)
+resourceParams.add_argument('status', type=str, location=['args', 'form', 'json'], required=True)
+
+
+class Resource(Resource):
+    def __init__(self):
+        self.args = resourceParams.parse_args()
+
+    def put(self, rid):
+        sql = f"replace into jw_resource (%s) value (%s) where id = {rid};" % (
+            ','.join(list(self.args.keys())), ','.join(["'%s'" % item for item in list(self.args.values())])
+        )
+        db.execute(sql)
+        return make_response(msg='changed')
+
+
+v1.add_resource(Resource, '/resource/<int:rid>')
+
+es = Elasticsearch(['123.57.67.240:9200'])
+
+
+@app.route('/v1/search', methods=['GET'])
+def search(rid=None):
+    rid = request.args.get('id')
+    title = request.args.get('title')
+    page = int(request.args.get('page', 0))
+    size = request.args.get('page_size', 20)
+
+    if page: page -= 1
+
+    index = 'ai_spider_album'
+    if rid:
+        body = {
+            "query": {
+                "bool": {
+                    "must": [
+                        {
+                            "match": {
+                                "id": rid
+                            }
+                        }
+                    ]
+                }
+            },
+            "from": page,
+            "size": size
+        }
+    elif title:
+        body = {
+            "query": {
+                "bool": {
+                    "must": [
+                        {
+                            "match": {
+                                "title": title
+                            }
+                        }
+                    ]
+                }
+            },
+            "from": page,
+            "size": size
+        }
+    else:
+        body = {
+            "query": {
+                "bool": {
+                    "must": [
+                        {
+                            "match_all": {}
+                        }
+                    ]
+                }
+            },
+            "from": page,
+            "size": size,
+        }
+
+    result = es.search(index=index, body=body)
+    return make_response(data=[item['_source'] for item in result['hits']['hits']])
+
 
 if __name__ == '__main__':
     app.run('0.0.0.0', port=5100, debug=True)
