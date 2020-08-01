@@ -77,6 +77,50 @@ class Accounts(Resource):
 
 v1.add_resource(Accounts, '/accounts/')
 
+roleParams = parser.copy()
+
+
+class Role(Resource):
+    def __init__(self):
+        self.args = roleParams.parse_args()
+
+    @staticmethod
+    def get(rid):
+        r = db.execute(
+            f"select id, name, unix_timestamp(created_at) as created_at, unix_timestamp(updated_at) as updated_at from jw_account_role where id = {rid};"
+        )
+        if r:
+            return make_response(data=r)
+        return make_response(code=400, error='角色不存在')
+
+    def post(self, rid):
+        r = db.execute(f"select id from jw_account_role where id = {rid};")
+        if r:
+            return make_response(code=400, error='角色已存在')
+        else:
+            try:
+                db.execute(f"insert into jw_account_role (name) value ({self.args['name']});")
+            except Exception:
+                return make_response(code=400, error='创建失败')
+
+        return make_response(code=201, msg='created')
+
+    def put(self, rid):
+        try:
+            db.execute(f"update jw_account_role set name = {self.args['name']} where id = {rid};")
+        except Exception:
+            return make_response(code=400, error='更新失败')
+
+        return make_response(msg='changed')
+
+    @staticmethod
+    def delete(rid):
+        db.execute(f"delete from jw_account_role where id = {rid};")
+        return make_response(msg='deleted')
+
+
+v1.add_resource(Role, '/v1/role/<int:rid>')
+
 accountParams = parser.copy()
 accountParams.add_argument('username', type=str, location=['args', 'form', 'json'])
 accountParams.add_argument('password', type=str, location=['args', 'form', 'json'])
@@ -91,26 +135,38 @@ class Account(Resource):
     @staticmethod
     def get(aid):
         r = db.execute(
-            f"select a.id, a.username, a.state, r.rolename, unix_timestamp(a.created_at) as created_at, unix_timestamp(a.updated_at) as updated_at from jw_account as a left join jw_account_role as r on a.role_id = r.id where a.id = {aid};")
-
+            f"select a.id, a.username, a.state, r.rolename, unix_timestamp(a.created_at) as created_at, unix_timestamp(a.updated_at) as updated_at from jw_account as a left join jw_account_role as r on a.role_id = r.id where a.id = {aid};"
+        )
         if r:
             return make_response(data=r)
         return make_response(code=400, error='账号不存在')
 
+    def post(self, aid):
+        r = db.execute(f"select id from jw_account where id = {aid};")
+        if r:
+            return make_response(code=400, error='账号已存在')
+        else:
+            try:
+                db.execute(
+                    f"insert into jw_account (username,password,state,role_id) value ({self.args['username']},{self.args['password']},{self.args['state']},{self.args['role_id']});")
+            except Exception:
+                return make_response(code=400, error='创建失败')
+
+        return make_response(code=201, msg='created')
+
     def put(self, aid):
         r = db.execute(f"select id from jw_account where id = {aid};")
         if r:
-            query = ""
-            if self.args['password']:
-                query += f"set password = '{self.args['password']}'"
-            if self.args['state']:
-                query += f", state = '{self.args['state']}'"
-            if self.args['role_id']:
-                query += f", role_id = '{self.args['role_id']}'"
-
+            query = [
+                f"{k} = {v}" for k, v in self.args.items() if v
+            ]
             if query:
-                db.execute(f"update jw_account {query} where id = {aid};")
-            return make_response(msg='changed')
+                try:
+                    db.execute(f"update jw_account set {','.join(query)} where id = {aid};")
+                except Exception:
+                    return make_response(code=400, error='更新失败')
+                else:
+                    return make_response(msg='changed')
         return make_response(code=400, error='账号不存在')
 
     @staticmethod
@@ -219,6 +275,16 @@ def search(rid=None):
 
     result = es.search(index=index, body=body)
     return make_response(data=[item['_source'] for item in result['hits']['hits']])
+
+
+@app.route('/login', methods=['POST'])
+def login():
+    pass
+
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    pass
 
 
 if __name__ == '__main__':
